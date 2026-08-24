@@ -17,7 +17,7 @@ func NewSafetyZoneHandler(service *service.SafetyZoneService) *SafetyZoneHandler
 
 func (handler *SafetyZoneHandler) List(context *gin.Context) {
 	page, pageSize := Pagination(context)
-	items, meta, err := handler.service.List(page, pageSize, QueryUint(context, "robot_cell_id"), "", "")
+	items, meta, err := handler.service.List(page, pageSize, QueryUint(context, "robot_cell_id"), context.Query("state"), context.Query("zone_type"))
 	if err != nil {
 		WriteError(context, err)
 		return

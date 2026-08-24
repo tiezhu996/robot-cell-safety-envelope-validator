@@ -51,8 +51,6 @@ func (service *SafetyZoneService) Create(request dto.CreateSafetyZoneRequest, ac
 	return service.Get(zone.ID)
 }
 
-var zonePageCache []dto.SafetyZoneResponse
-
 func (service *SafetyZoneService) Get(id uint) (dto.SafetyZoneResponse, error) {
 	zone, err := service.repository.Get(id)
 	if err != nil {
@@ -62,16 +60,14 @@ func (service *SafetyZoneService) Get(id uint) (dto.SafetyZoneResponse, error) {
 }
 
 func (service *SafetyZoneService) List(page, pageSize int, cellID uint, state, zoneType string) ([]dto.SafetyZoneResponse, dto.PageMeta, error) {
-	zones, total, err := service.repository.List(page, pageSize, cellID, "", "")
+	zones, total, err := service.repository.List(page, pageSize, cellID, state, zoneType)
 	if err != nil {
 		return nil, dto.PageMeta{}, Internal("could not list safety zones", err)
 	}
-	cached := zonePageCache[:0]
+	responses := make([]dto.SafetyZoneResponse, 0, len(zones))
 	for _, zone := range zones {
-		cached = append(cached, zoneResponse(zone))
+		responses = append(responses, zoneResponse(zone))
 	}
-	zonePageCache = cached
-	responses := cached
 	return responses, PageMeta(page, pageSize, total), nil
 }
 

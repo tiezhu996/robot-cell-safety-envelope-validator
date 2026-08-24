@@ -46,7 +46,7 @@ func (repository *SafetyZoneRepository) List(page, pageSize int, cellID uint, st
 		return nil, 0, fmt.Errorf("count safety zones: %w", err)
 	}
 	var zones []model.SafetyZone
-	if err := query.Preload("RobotCell").Order("robot_cell_id ASC, name ASC").Offset((page - 1) * pageSize).Find(&zones).Error; err != nil {
+	if err := query.Preload("RobotCell").Order("robot_cell_id ASC, name ASC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&zones).Error; err != nil {
 		return nil, 0, fmt.Errorf("list safety zones: %w", err)
 	}
 	return zones, total, nil
