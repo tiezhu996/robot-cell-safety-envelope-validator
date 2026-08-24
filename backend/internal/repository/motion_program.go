@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"fmt"
 
 	"gorm.io/gorm"
@@ -17,23 +18,23 @@ func (repository *MotionProgramRepository) WithDB(db *gorm.DB) *MotionProgramRep
 	return &MotionProgramRepository{db: db}
 }
 
-func (repository *MotionProgramRepository) Create(program *model.MotionProgram) error {
-	if err := repository.db.Create(program).Error; err != nil {
+func (repository *MotionProgramRepository) Create(ctx context.Context, program *model.MotionProgram) error {
+	if err := repository.db.WithContext(ctx).Create(program).Error; err != nil {
 		return fmt.Errorf("create motion program: %w", err)
 	}
 	return nil
 }
 
-func (repository *MotionProgramRepository) Get(id uint) (model.MotionProgram, error) {
+func (repository *MotionProgramRepository) Get(ctx context.Context, id uint) (model.MotionProgram, error) {
 	var program model.MotionProgram
-	if err := repository.db.Preload("RobotCell").First(&program, id).Error; err != nil {
+	if err := repository.db.WithContext(ctx).Preload("RobotCell").First(&program, id).Error; err != nil {
 		return program, fmt.Errorf("get motion program: %w", err)
 	}
 	return program, nil
 }
 
-func (repository *MotionProgramRepository) List(page, pageSize int, cellID uint, state string) ([]model.MotionProgram, int64, error) {
-	query := repository.db.Model(&model.MotionProgram{})
+func (repository *MotionProgramRepository) List(ctx context.Context, page, pageSize int, cellID uint, state string) ([]model.MotionProgram, int64, error) {
+	query := repository.db.WithContext(ctx).Model(&model.MotionProgram{})
 	if cellID > 0 {
 		query = query.Where("robot_cell_id = ?", cellID)
 	}
@@ -51,8 +52,8 @@ func (repository *MotionProgramRepository) List(page, pageSize int, cellID uint,
 	return programs, total, nil
 }
 
-func (repository *MotionProgramRepository) Transition(id uint, from, to string) error {
-	result := repository.db.Model(&model.MotionProgram{}).Where("id = ? AND program_state = ?", id, from).Update("program_state", to)
+func (repository *MotionProgramRepository) Transition(ctx context.Context, id uint, from, to string) error {
+	result := repository.db.WithContext(ctx).Model(&model.MotionProgram{}).Where("id = ? AND program_state = ?", id, from).Update("program_state", to)
 	if result.Error != nil {
 		return fmt.Errorf("transition motion program: %w", result.Error)
 	}
@@ -62,8 +63,8 @@ func (repository *MotionProgramRepository) Transition(id uint, from, to string) 
 	return nil
 }
 
-func (repository *MotionProgramRepository) SupersedeActive(cellID, exceptID uint) error {
-	if err := repository.db.Model(&model.MotionProgram{}).
+func (repository *MotionProgramRepository) SupersedeActive(ctx context.Context, cellID, exceptID uint) error {
+	if err := repository.db.WithContext(ctx).Model(&model.MotionProgram{}).
 		Where("robot_cell_id = ? AND id <> ? AND program_state = ?", cellID, exceptID, "active").
 		Update("program_state", "superseded").Error; err != nil {
 		return fmt.Errorf("supersede active programs: %w", err)

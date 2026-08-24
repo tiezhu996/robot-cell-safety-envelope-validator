@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	stdctx "context"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -18,7 +17,7 @@ func Auth(system *service.SystemService) gin.HandlerFunc {
 			writeAuthError(context, service.Unauthorized("bearer access token is required"))
 			return
 		}
-		actor, err := system.ParseTokenWithContext(stdctx.Background(), strings.TrimSpace(strings.TrimPrefix(header, "Bearer ")))
+		actor, err := system.ParseTokenWithContext(context.Request.Context(), strings.TrimSpace(strings.TrimPrefix(header, "Bearer ")))
 		if err != nil {
 			writeAuthError(context, err)
 			return

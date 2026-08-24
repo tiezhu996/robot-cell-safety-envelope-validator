@@ -1,7 +1,6 @@
 package handler
 
 import (
-	stdctx "context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -36,7 +35,7 @@ func (handler *SystemHandler) Login(context *gin.Context) {
 		WriteError(context, err)
 		return
 	}
-	response, err := handler.service.Login(request)
+	response, err := handler.service.Login(context.Request.Context(), request)
 	if err != nil {
 		WriteError(context, err)
 		return
@@ -54,7 +53,7 @@ func (handler *SystemHandler) Ready(context *gin.Context) {
 		WriteError(context, service.Internal("database handle is unavailable", err))
 		return
 	}
-	if err := sqlDB.PingContext(stdctx.Background()); err != nil {
+	if err := sqlDB.PingContext(context.Request.Context()); err != nil {
 		WriteError(context, service.Internal("database is unavailable", err))
 		return
 	}
@@ -73,7 +72,7 @@ func (handler *SystemHandler) Audit(context *gin.Context) {
 		WriteError(context, service.BadRequest("invalid_time_filter", "to must be RFC3339", err))
 		return
 	}
-	events, meta, err := handler.service.ListAudit(page, pageSize, context.Query("actor"), context.Query("request_id"), context.Query("resource_type"), context.Query("action"), from, to)
+	events, meta, err := handler.service.ListAudit(context.Request.Context(), page, pageSize, context.Query("actor"), context.Query("request_id"), context.Query("resource_type"), context.Query("action"), from, to)
 	if err != nil {
 		WriteError(context, err)
 		return

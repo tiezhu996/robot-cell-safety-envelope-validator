@@ -86,8 +86,8 @@ func NewSystemService(repository *repository.SystemRepository, secret string, tt
 	return &SystemService{repository: repository, secret: []byte(secret), ttl: ttl}
 }
 
-func (service *SystemService) Login(request dto.LoginRequest) (dto.LoginResponse, error) {
-	user, err := service.repository.FindUser(strings.TrimSpace(request.Username))
+func (service *SystemService) Login(ctx context.Context, request dto.LoginRequest) (dto.LoginResponse, error) {
+	user, err := service.repository.FindUser(ctx, strings.TrimSpace(request.Username))
 	if err != nil || bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(request.Password)) != nil {
 		return dto.LoginResponse{}, Unauthorized("invalid username or password")
 	}
@@ -121,33 +121,39 @@ func (service *SystemService) ParseToken(encoded string) (dto.Actor, error) {
 	return dto.Actor{ID: claims.UserID, Username: claims.Username, Role: claims.Role}, nil
 }
 
+// ParseTokenWithContext validates the access token. JWT verification is pure CPU
+// work with no I/O, so the context is consulted only as a cancellation signal:
+// if the request was already cancelled before we start, we bail out rather
+// than burning CPU on a result the caller will never read.
 func (service *SystemService) ParseTokenWithContext(ctx context.Context, encoded string) (dto.Actor, error) {
-	_ = ctx
+	if err := ctx.Err(); err != nil {
+		return dto.Actor{}, Unauthorized("access token is invalid or expired")
+	}
 	return service.ParseToken(encoded)
 }
 
-func (service *SystemService) RecordAudit(actor dto.Actor, requestID, action, resourceType, resourceID string, parameters, before, after any) error {
-	return service.record(service.repository, actor, requestID, action, resourceType, resourceID, parameters, before, after)
+func (service *SystemService) RecordAudit(ctx context.Context, actor dto.Actor, requestID, action, resourceType, resourceID string, parameters, before, after any) error {
+	return service.record(ctx, service.repository, actor, requestID, action, resourceType, resourceID, parameters, before, after)
 }
 
-func (service *SystemService) RecordAuditTx(db *gorm.DB, actor dto.Actor, requestID, action, resourceType, resourceID string, parameters, before, after any) error {
-	return service.record(service.repository.WithDB(db), actor, requestID, action, resourceType, resourceID, parameters, before, after)
+func (service *SystemService) RecordAuditTx(ctx context.Context, db *gorm.DB, actor dto.Actor, requestID, action, resourceType, resourceID string, parameters, before, after any) error {
+	return service.record(ctx, service.repository.WithDB(db), actor, requestID, action, resourceType, resourceID, parameters, before, after)
 }
 
-func (service *SystemService) record(repo *repository.SystemRepository, actor dto.Actor, requestID, action, resourceType, resourceID string, parameters, before, after any) error {
+func (service *SystemService) record(ctx context.Context, repo *repository.SystemRepository, actor dto.Actor, requestID, action, resourceType, resourceID string, parameters, before, after any) error {
 	event := model.AuditEvent{
 		ActorID: actor.ID, Actor: actor.Username, Role: actor.Role, Action: action,
 		ResourceType: resourceType, ResourceID: resourceID, RequestID: requestID,
 		ParametersJSON: encodeSummary(parameters), BeforeJSON: encodeSummary(before), AfterJSON: encodeSummary(after),
 	}
-	if err := repo.CreateAudit(&event); err != nil {
+	if err := repo.CreateAudit(ctx, &event); err != nil {
 		return Internal("could not record audit event", err)
 	}
 	return nil
 }
 
-func (service *SystemService) ListAudit(page, pageSize int, actor, requestID, resourceType, action string, from, to *time.Time) ([]dto.AuditEventResponse, dto.PageMeta, error) {
-	events, total, err := service.repository.ListAudit(page, pageSize, actor, requestID, resourceType, action, from, to)
+func (service *SystemService) ListAudit(ctx context.Context, page, pageSize int, actor, requestID, resourceType, action string, from, to *time.Time) ([]dto.AuditEventResponse, dto.PageMeta, error) {
+	events, total, err := service.repository.ListAudit(ctx, page, pageSize, actor, requestID, resourceType, action, from, to)
 	if err != nil {
 		return nil, dto.PageMeta{}, Internal("could not list audit events", err)
 	}

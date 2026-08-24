@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -45,26 +46,26 @@ type zoneSnapshotItem struct {
 	Version        int             `json:"version"`
 }
 
-func (service *ValidationRunService) Create(request dto.CreateValidationRunRequest, idempotencyKey string, actor dto.Actor, requestID string) (dto.ValidationRunResponse, bool, error) {
+func (service *ValidationRunService) Create(ctx context.Context, request dto.CreateValidationRunRequest, idempotencyKey string, actor dto.Actor, requestID string) (dto.ValidationRunResponse, bool, error) {
 	idempotencyKey = strings.TrimSpace(idempotencyKey)
 	if len(idempotencyKey) < 8 || len(idempotencyKey) > 120 {
 		return dto.ValidationRunResponse{}, false, BadRequest("invalid_idempotency_key", "Idempotency-Key must contain 8 to 120 characters")
 	}
-	if existing, err := service.repository.FindByIdempotencyKey(idempotencyKey); err == nil {
+	if existing, err := service.repository.FindByIdempotencyKey(ctx, idempotencyKey); err == nil {
 		response, responseErr := validationResponse(existing)
 		response.Reused = true
 		return response, true, responseErr
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return dto.ValidationRunResponse{}, false, Internal("could not check idempotency key", err)
 	}
-	program, err := service.programs.Get(request.MotionProgramID)
+	program, err := service.programs.Get(ctx, request.MotionProgramID)
 	if err != nil {
 		return dto.ValidationRunResponse{}, false, MapRepositoryError("motion program", err)
 	}
 	if program.ProgramState != constants.ProgramStateReady && program.ProgramState != constants.ProgramStateActive {
 		return dto.ValidationRunResponse{}, false, Conflict("program_not_ready", "only ready or active programs can be validated", repository.ErrStateConflict)
 	}
-	activeZones, err := service.zones.ActiveForCell(program.RobotCellID)
+	activeZones, err := service.zones.ActiveForCell(ctx, program.RobotCellID)
 	if err != nil {
 		return dto.ValidationRunResponse{}, false, Internal("could not load active zones", err)
 	}
@@ -81,7 +82,7 @@ func (service *ValidationRunService) Create(request dto.CreateValidationRunReque
 	}
 	inputHash := validationInputHash(programSnapshot, zoneSnapshot, service.algorithmVersion)
 	attempt, retryOfID := 1, (*uint)(nil)
-	if previous, err := service.repository.LatestByInput(inputHash, service.algorithmVersion); err == nil {
+	if previous, err := service.repository.LatestByInput(ctx, inputHash, service.algorithmVersion); err == nil {
 		if previous.ValidationStatus != constants.ValidationFailed || !request.RetryFailed {
 			response, responseErr := validationResponse(previous)
 			response.Reused = true
@@ -104,25 +105,25 @@ func (service *ValidationRunService) Create(request dto.CreateValidationRunReque
 		InterlockFindingsJSON: string(findingJSON), RiskScore: riskScore, ValidationStatus: constants.ValidationQueued,
 		Explanation: explanation, RequestedBy: actor.ID, StartedAt: started,
 	}
-	err = service.db.Transaction(func(tx *gorm.DB) error {
+	err = service.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		repo := service.repository.WithDB(tx)
-		if err := repo.Create(&run); err != nil {
+		if err := repo.Create(ctx, &run); err != nil {
 			return err
 		}
-		if err := repo.SetSimulating(run.ID); err != nil {
+		if err := repo.SetSimulating(ctx, run.ID); err != nil {
 			return err
 		}
 		run.ValidationStatus, run.FinishedAt = status, &finished
-		if err := repo.Finish(&run); err != nil {
+		if err := repo.Finish(ctx, &run); err != nil {
 			return err
 		}
-		return service.system.RecordAuditTx(tx, actor, requestID, "validation_run.completed", "validation_run", auditID(run.ID), map[string]any{
+		return service.system.RecordAuditTx(ctx, tx, actor, requestID, "validation_run.completed", "validation_run", auditID(run.ID), map[string]any{
 			"algorithm_version": service.algorithmVersion, "input_hash": inputHash, "attempt": attempt,
 		}, nil, map[string]any{"status": status, "risk_score": riskScore, "collision_count": len(collisions), "interlock_finding_count": len(findings)})
 	})
 	if err != nil {
 		if repository.IsUniqueViolation(err) {
-			if existing, lookupErr := service.repository.FindByIdempotencyKey(idempotencyKey); lookupErr == nil {
+			if existing, lookupErr := service.repository.FindByIdempotencyKey(ctx, idempotencyKey); lookupErr == nil {
 				response, responseErr := validationResponse(existing)
 				response.Reused = true
 				return response, true, responseErr
@@ -131,20 +132,20 @@ func (service *ValidationRunService) Create(request dto.CreateValidationRunReque
 		}
 		return dto.ValidationRunResponse{}, false, Internal("could not persist validation run", err)
 	}
-	response, err := service.Get(run.ID)
+	response, err := service.Get(ctx, run.ID)
 	return response, false, err
 }
 
-func (service *ValidationRunService) Get(id uint) (dto.ValidationRunResponse, error) {
-	run, err := service.repository.Get(id)
+func (service *ValidationRunService) Get(ctx context.Context, id uint) (dto.ValidationRunResponse, error) {
+	run, err := service.repository.Get(ctx, id)
 	if err != nil {
 		return dto.ValidationRunResponse{}, MapRepositoryError("validation run", err)
 	}
 	return validationResponse(run)
 }
 
-func (service *ValidationRunService) List(page, pageSize int, programID uint, status string) ([]dto.ValidationRunResponse, dto.PageMeta, error) {
-	runs, total, err := service.repository.List(page, pageSize, programID, status)
+func (service *ValidationRunService) List(ctx context.Context, page, pageSize int, programID uint, status string) ([]dto.ValidationRunResponse, dto.PageMeta, error) {
+	runs, total, err := service.repository.List(ctx, page, pageSize, programID, status)
 	if err != nil {
 		return nil, dto.PageMeta{}, Internal("could not list validation runs", err)
 	}
@@ -159,29 +160,29 @@ func (service *ValidationRunService) List(page, pageSize int, programID uint, st
 	return responses, PageMeta(page, pageSize, total), nil
 }
 
-func (service *ValidationRunService) Review(id uint, note string, actor dto.Actor, requestID string) (dto.ValidationRunResponse, error) {
-	before, err := service.repository.Get(id)
+func (service *ValidationRunService) Review(ctx context.Context, id uint, note string, actor dto.Actor, requestID string) (dto.ValidationRunResponse, error) {
+	before, err := service.repository.Get(ctx, id)
 	if err != nil {
 		return dto.ValidationRunResponse{}, MapRepositoryError("validation run", err)
 	}
 	if before.ValidationStatus != constants.ValidationPassed && before.ValidationStatus != constants.ValidationFailed {
 		return dto.ValidationRunResponse{}, Conflict("invalid_validation_transition", "only completed passed or failed runs can be reviewed", repository.ErrStateConflict)
 	}
-	if err := service.repository.Review(id, before.ValidationStatus, constants.ValidationReviewed, actor.ID, strings.TrimSpace(note)); err != nil {
+	if err := service.repository.Review(ctx, id, before.ValidationStatus, constants.ValidationReviewed, actor.ID, strings.TrimSpace(note)); err != nil {
 		return dto.ValidationRunResponse{}, Conflict("state_conflict", "validation state changed concurrently", err)
 	}
-	after, err := service.repository.Get(id)
+	after, err := service.repository.Get(ctx, id)
 	if err != nil {
 		return dto.ValidationRunResponse{}, Internal("could not reload validation run", err)
 	}
-	if err := service.system.RecordAudit(actor, requestID, "validation_run.reviewed", "validation_run", auditID(id), map[string]any{"note_length": len(note)}, validationSummary(before), validationSummary(after)); err != nil {
+	if err := service.system.RecordAudit(ctx, actor, requestID, "validation_run.reviewed", "validation_run", auditID(id), map[string]any{"note_length": len(note)}, validationSummary(before), validationSummary(after)); err != nil {
 		return dto.ValidationRunResponse{}, err
 	}
 	return validationResponse(after)
 }
 
-func (service *ValidationRunService) Accept(id uint, note string, actor dto.Actor, requestID string) (dto.ValidationRunResponse, error) {
-	before, err := service.repository.Get(id)
+func (service *ValidationRunService) Accept(ctx context.Context, id uint, note string, actor dto.Actor, requestID string) (dto.ValidationRunResponse, error) {
+	before, err := service.repository.Get(ctx, id)
 	if err != nil {
 		return dto.ValidationRunResponse{}, MapRepositoryError("validation run", err)
 	}
@@ -191,21 +192,21 @@ func (service *ValidationRunService) Accept(id uint, note string, actor dto.Acto
 	if before.ValidationStatus != constants.ValidationReviewed {
 		return dto.ValidationRunResponse{}, Conflict("invalid_validation_transition", "only reviewed runs can be accepted", repository.ErrStateConflict)
 	}
-	if err := service.repository.Review(id, constants.ValidationReviewed, constants.ValidationAccepted, actor.ID, strings.TrimSpace(note)); err != nil {
+	if err := service.repository.Review(ctx, id, constants.ValidationReviewed, constants.ValidationAccepted, actor.ID, strings.TrimSpace(note)); err != nil {
 		return dto.ValidationRunResponse{}, Conflict("state_conflict", "validation state changed concurrently", err)
 	}
-	after, err := service.repository.Get(id)
+	after, err := service.repository.Get(ctx, id)
 	if err != nil {
 		return dto.ValidationRunResponse{}, Internal("could not reload validation run", err)
 	}
-	if err := service.system.RecordAudit(actor, requestID, "validation_run.accepted", "validation_run", auditID(id), map[string]any{"note_length": len(note), "decision_boundary": "offline evidence only"}, validationSummary(before), validationSummary(after)); err != nil {
+	if err := service.system.RecordAudit(ctx, actor, requestID, "validation_run.accepted", "validation_run", auditID(id), map[string]any{"note_length": len(note), "decision_boundary": "offline evidence only"}, validationSummary(before), validationSummary(after)); err != nil {
 		return dto.ValidationRunResponse{}, err
 	}
 	return validationResponse(after)
 }
 
-func (service *ValidationRunService) Void(id uint, note string, actor dto.Actor, requestID string) (dto.ValidationRunResponse, error) {
-	before, err := service.repository.Get(id)
+func (service *ValidationRunService) Void(ctx context.Context, id uint, note string, actor dto.Actor, requestID string) (dto.ValidationRunResponse, error) {
+	before, err := service.repository.Get(ctx, id)
 	if err != nil {
 		return dto.ValidationRunResponse{}, MapRepositoryError("validation run", err)
 	}
@@ -213,14 +214,14 @@ func (service *ValidationRunService) Void(id uint, note string, actor dto.Actor,
 	if !allowed {
 		return dto.ValidationRunResponse{}, Conflict("invalid_validation_transition", "this validation run cannot be voided from its current state", repository.ErrStateConflict)
 	}
-	if err := service.repository.Review(id, before.ValidationStatus, constants.ValidationVoided, actor.ID, strings.TrimSpace(note)); err != nil {
+	if err := service.repository.Review(ctx, id, before.ValidationStatus, constants.ValidationVoided, actor.ID, strings.TrimSpace(note)); err != nil {
 		return dto.ValidationRunResponse{}, Conflict("state_conflict", "validation state changed concurrently", err)
 	}
-	after, err := service.repository.Get(id)
+	after, err := service.repository.Get(ctx, id)
 	if err != nil {
 		return dto.ValidationRunResponse{}, Internal("could not reload validation run", err)
 	}
-	if err := service.system.RecordAudit(actor, requestID, "validation_run.voided", "validation_run", auditID(id), map[string]any{"note_length": len(note)}, validationSummary(before), validationSummary(after)); err != nil {
+	if err := service.system.RecordAudit(ctx, actor, requestID, "validation_run.voided", "validation_run", auditID(id), map[string]any{"note_length": len(note)}, validationSummary(before), validationSummary(after)); err != nil {
 		return dto.ValidationRunResponse{}, err
 	}
 	return validationResponse(after)

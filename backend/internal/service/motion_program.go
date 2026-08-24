@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -30,8 +31,8 @@ func NewMotionProgramService(db *gorm.DB, repository *repository.MotionProgramRe
 	return &MotionProgramService{db: db, repository: repository, cells: cells, system: system}
 }
 
-func (service *MotionProgramService) Create(request dto.CreateMotionProgramRequest, actor dto.Actor, requestID string) (dto.MotionProgramResponse, error) {
-	cell, err := service.cells.Get(request.RobotCellID)
+func (service *MotionProgramService) Create(ctx context.Context, request dto.CreateMotionProgramRequest, actor dto.Actor, requestID string) (dto.MotionProgramResponse, error) {
+	cell, err := service.cells.Get(ctx, request.RobotCellID)
 	if err != nil {
 		return dto.MotionProgramResponse{}, MapRepositoryError("robot cell", err)
 	}
@@ -52,30 +53,30 @@ func (service *MotionProgramService) Create(request dto.CreateMotionProgramReque
 		InterlockSequenceJSON: string(interlockJSON), SourceChecksum: checksumProgram(request),
 		ProgramState: constants.ProgramStateUploaded, UploadedBy: actor.ID, UploadedAt: time.Now().UTC(),
 	}
-	if err := service.repository.Create(&program); err != nil {
+	if err := service.repository.Create(ctx, &program); err != nil {
 		if repository.IsUniqueViolation(err) {
 			return dto.MotionProgramResponse{}, Conflict("duplicate_program_version", "program_code and version already exist", err)
 		}
 		return dto.MotionProgramResponse{}, Internal("could not import motion program", err)
 	}
-	if err := service.system.RecordAudit(actor, requestID, "motion_program.uploaded", "motion_program", auditID(program.ID), map[string]any{
+	if err := service.system.RecordAudit(ctx, actor, requestID, "motion_program.uploaded", "motion_program", auditID(program.ID), map[string]any{
 		"program_code": program.ProgramCode, "version": program.Version, "point_count": len(request.Trajectory), "source_checksum": program.SourceChecksum,
 	}, nil, programSummary(program)); err != nil {
 		return dto.MotionProgramResponse{}, err
 	}
-	return service.Get(program.ID)
+	return service.Get(ctx, program.ID)
 }
 
-func (service *MotionProgramService) Get(id uint) (dto.MotionProgramResponse, error) {
-	program, err := service.repository.Get(id)
+func (service *MotionProgramService) Get(ctx context.Context, id uint) (dto.MotionProgramResponse, error) {
+	program, err := service.repository.Get(ctx, id)
 	if err != nil {
 		return dto.MotionProgramResponse{}, MapRepositoryError("motion program", err)
 	}
 	return programResponse(program)
 }
 
-func (service *MotionProgramService) List(page, pageSize int, cellID uint, state string) ([]dto.MotionProgramResponse, dto.PageMeta, error) {
-	programs, total, err := service.repository.List(page, pageSize, cellID, state)
+func (service *MotionProgramService) List(ctx context.Context, page, pageSize int, cellID uint, state string) ([]dto.MotionProgramResponse, dto.PageMeta, error) {
+	programs, total, err := service.repository.List(ctx, page, pageSize, cellID, state)
 	if err != nil {
 		return nil, dto.PageMeta{}, Internal("could not list motion programs", err)
 	}
@@ -90,8 +91,8 @@ func (service *MotionProgramService) List(page, pageSize int, cellID uint, state
 	return responses, PageMeta(page, pageSize, total), nil
 }
 
-func (service *MotionProgramService) Transition(id uint, target string, actor dto.Actor, requestID string) (dto.MotionProgramResponse, error) {
-	before, err := service.repository.Get(id)
+func (service *MotionProgramService) Transition(ctx context.Context, id uint, target string, actor dto.Actor, requestID string) (dto.MotionProgramResponse, error) {
+	before, err := service.repository.Get(ctx, id)
 	if err != nil {
 		return dto.MotionProgramResponse{}, MapRepositoryError("motion program", err)
 	}
@@ -100,29 +101,29 @@ func (service *MotionProgramService) Transition(id uint, target string, actor dt
 	}
 	if target == constants.ProgramStateParsed {
 		if parseErrors := service.parseErrors(before); len(parseErrors) > 0 {
-			if err := service.repository.Transition(id, before.ProgramState, constants.ProgramStateRejected); err != nil {
+			if err := service.repository.Transition(ctx, id, before.ProgramState, constants.ProgramStateRejected); err != nil {
 				return dto.MotionProgramResponse{}, Conflict("state_conflict", "program state changed while rejecting parse", err)
 			}
-			after, _ := service.repository.Get(id)
-			_ = service.system.RecordAudit(actor, requestID, "motion_program.parse_rejected", "motion_program", auditID(id), map[string]any{"errors": parseErrors}, programSummary(before), programSummary(after))
+			after, _ := service.repository.Get(ctx, id)
+			_ = service.system.RecordAudit(ctx, actor, requestID, "motion_program.parse_rejected", "motion_program", auditID(id), map[string]any{"errors": parseErrors}, programSummary(before), programSummary(after))
 			return dto.MotionProgramResponse{}, Unprocessable("program_parse_failed", strings.Join(parseErrors, "; "), nil)
 		}
 	}
-	err = service.db.Transaction(func(tx *gorm.DB) error {
+	err = service.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		repo := service.repository.WithDB(tx)
 		if target == constants.ProgramStateActive {
-			if err := repo.SupersedeActive(before.RobotCellID, before.ID); err != nil {
+			if err := repo.SupersedeActive(ctx, before.RobotCellID, before.ID); err != nil {
 				return err
 			}
 		}
-		if err := repo.Transition(id, before.ProgramState, target); err != nil {
+		if err := repo.Transition(ctx, id, before.ProgramState, target); err != nil {
 			return err
 		}
-		after, err := repo.Get(id)
+		after, err := repo.Get(ctx, id)
 		if err != nil {
 			return err
 		}
-		return service.system.RecordAuditTx(tx, actor, requestID, "motion_program.state_changed", "motion_program", auditID(id), map[string]any{"target_state": target}, programSummary(before), programSummary(after))
+		return service.system.RecordAuditTx(ctx, tx, actor, requestID, "motion_program.state_changed", "motion_program", auditID(id), map[string]any{"target_state": target}, programSummary(before), programSummary(after))
 	})
 	if err != nil {
 		if errors.Is(err, repository.ErrStateConflict) {
@@ -130,7 +131,7 @@ func (service *MotionProgramService) Transition(id uint, target string, actor dt
 		}
 		return dto.MotionProgramResponse{}, Internal("could not transition motion program", err)
 	}
-	return service.Get(id)
+	return service.Get(ctx, id)
 }
 
 func (service *MotionProgramService) parseErrors(program model.MotionProgram) []string {

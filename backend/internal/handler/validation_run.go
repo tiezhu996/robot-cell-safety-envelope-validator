@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -17,7 +18,7 @@ func NewValidationRunHandler(service *service.ValidationRunService) *ValidationR
 
 func (handler *ValidationRunHandler) List(context *gin.Context) {
 	page, pageSize := Pagination(context)
-	items, meta, err := handler.service.List(page, pageSize, QueryUint(context, "motion_program_id"), context.Query("status"))
+	items, meta, err := handler.service.List(context.Request.Context(), page, pageSize, QueryUint(context, "motion_program_id"), context.Query("status"))
 	if err != nil {
 		WriteError(context, err)
 		return
@@ -31,7 +32,7 @@ func (handler *ValidationRunHandler) Get(context *gin.Context) {
 		WriteError(context, err)
 		return
 	}
-	item, err := handler.service.Get(id)
+	item, err := handler.service.Get(context.Request.Context(), id)
 	if err != nil {
 		WriteError(context, err)
 		return
@@ -45,7 +46,7 @@ func (handler *ValidationRunHandler) Create(context *gin.Context) {
 		WriteError(context, err)
 		return
 	}
-	item, reused, err := handler.service.Create(request, context.GetHeader("Idempotency-Key"), Actor(context), RequestID(context))
+	item, reused, err := handler.service.Create(context.Request.Context(), request, context.GetHeader("Idempotency-Key"), Actor(context), RequestID(context))
 	if err != nil {
 		WriteError(context, err)
 		return
@@ -67,7 +68,7 @@ func (handler *ValidationRunHandler) Void(context *gin.Context) {
 	handler.reviewAction(context, handler.service.Void)
 }
 
-func (handler *ValidationRunHandler) reviewAction(context *gin.Context, action func(uint, string, dto.Actor, string) (dto.ValidationRunResponse, error)) {
+func (handler *ValidationRunHandler) reviewAction(context *gin.Context, action func(context.Context, uint, string, dto.Actor, string) (dto.ValidationRunResponse, error)) {
 	id, err := PathID(context)
 	if err != nil {
 		WriteError(context, err)
@@ -78,7 +79,7 @@ func (handler *ValidationRunHandler) reviewAction(context *gin.Context, action f
 		WriteError(context, err)
 		return
 	}
-	item, err := action(id, request.Note, Actor(context), RequestID(context))
+	item, err := action(context.Request.Context(), id, request.Note, Actor(context), RequestID(context))
 	if err != nil {
 		WriteError(context, err)
 		return

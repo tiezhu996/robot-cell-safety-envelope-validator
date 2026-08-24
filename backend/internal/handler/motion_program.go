@@ -17,7 +17,7 @@ func NewMotionProgramHandler(service *service.MotionProgramService) *MotionProgr
 
 func (handler *MotionProgramHandler) List(context *gin.Context) {
 	page, pageSize := Pagination(context)
-	items, meta, err := handler.service.List(page, pageSize, QueryUint(context, "robot_cell_id"), context.Query("state"))
+	items, meta, err := handler.service.List(context.Request.Context(), page, pageSize, QueryUint(context, "robot_cell_id"), context.Query("state"))
 	if err != nil {
 		WriteError(context, err)
 		return
@@ -31,7 +31,7 @@ func (handler *MotionProgramHandler) Get(context *gin.Context) {
 		WriteError(context, err)
 		return
 	}
-	item, err := handler.service.Get(id)
+	item, err := handler.service.Get(context.Request.Context(), id)
 	if err != nil {
 		WriteError(context, err)
 		return
@@ -45,7 +45,7 @@ func (handler *MotionProgramHandler) Create(context *gin.Context) {
 		WriteError(context, err)
 		return
 	}
-	item, err := handler.service.Create(request, Actor(context), RequestID(context))
+	item, err := handler.service.Create(context.Request.Context(), request, Actor(context), RequestID(context))
 	if err != nil {
 		WriteError(context, err)
 		return
@@ -64,7 +64,7 @@ func (handler *MotionProgramHandler) Transition(context *gin.Context) {
 		WriteError(context, err)
 		return
 	}
-	item, err := handler.service.Transition(id, request.TargetState, Actor(context), RequestID(context))
+	item, err := handler.service.Transition(context.Request.Context(), id, request.TargetState, Actor(context), RequestID(context))
 	if err != nil {
 		WriteError(context, err)
 		return

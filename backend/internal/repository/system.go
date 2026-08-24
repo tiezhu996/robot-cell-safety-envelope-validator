@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -32,23 +33,23 @@ func (repository *SystemRepository) WithDB(db *gorm.DB) *SystemRepository {
 }
 func (repository *SystemRepository) DB() *gorm.DB { return repository.db }
 
-func (repository *SystemRepository) FindUser(username string) (model.User, error) {
+func (repository *SystemRepository) FindUser(ctx context.Context, username string) (model.User, error) {
 	var user model.User
-	if err := repository.db.Where("username = ? AND active = ?", username, true).First(&user).Error; err != nil {
+	if err := repository.db.WithContext(ctx).Where("username = ? AND active = ?", username, true).First(&user).Error; err != nil {
 		return user, fmt.Errorf("find active user: %w", err)
 	}
 	return user, nil
 }
 
-func (repository *SystemRepository) CreateAudit(event *model.AuditEvent) error {
-	if err := repository.db.Create(event).Error; err != nil {
+func (repository *SystemRepository) CreateAudit(ctx context.Context, event *model.AuditEvent) error {
+	if err := repository.db.WithContext(ctx).Create(event).Error; err != nil {
 		return fmt.Errorf("create audit event: %w", err)
 	}
 	return nil
 }
 
-func (repository *SystemRepository) ListAudit(page, pageSize int, actor, requestID, resourceType, action string, from, to *time.Time) ([]model.AuditEvent, int64, error) {
-	query := repository.db.Model(&model.AuditEvent{})
+func (repository *SystemRepository) ListAudit(ctx context.Context, page, pageSize int, actor, requestID, resourceType, action string, from, to *time.Time) ([]model.AuditEvent, int64, error) {
+	query := repository.db.WithContext(ctx).Model(&model.AuditEvent{})
 	if actor != "" {
 		query = query.Where("actor = ?", actor)
 	}

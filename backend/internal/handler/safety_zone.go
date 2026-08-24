@@ -17,7 +17,7 @@ func NewSafetyZoneHandler(service *service.SafetyZoneService) *SafetyZoneHandler
 
 func (handler *SafetyZoneHandler) List(context *gin.Context) {
 	page, pageSize := Pagination(context)
-	items, meta, err := handler.service.List(page, pageSize, QueryUint(context, "robot_cell_id"), context.Query("state"), context.Query("zone_type"))
+	items, meta, err := handler.service.List(context.Request.Context(), page, pageSize, QueryUint(context, "robot_cell_id"), context.Query("state"), context.Query("zone_type"))
 	if err != nil {
 		WriteError(context, err)
 		return
@@ -31,7 +31,7 @@ func (handler *SafetyZoneHandler) Get(context *gin.Context) {
 		WriteError(context, err)
 		return
 	}
-	item, err := handler.service.Get(id)
+	item, err := handler.service.Get(context.Request.Context(), id)
 	if err != nil {
 		WriteError(context, err)
 		return
@@ -45,7 +45,7 @@ func (handler *SafetyZoneHandler) Create(context *gin.Context) {
 		WriteError(context, err)
 		return
 	}
-	item, err := handler.service.Create(request, Actor(context), RequestID(context))
+	item, err := handler.service.Create(context.Request.Context(), request, Actor(context), RequestID(context))
 	if err != nil {
 		WriteError(context, err)
 		return
@@ -64,7 +64,7 @@ func (handler *SafetyZoneHandler) Update(context *gin.Context) {
 		WriteError(context, err)
 		return
 	}
-	item, err := handler.service.Update(id, request, Actor(context), RequestID(context))
+	item, err := handler.service.Update(context.Request.Context(), id, request, Actor(context), RequestID(context))
 	if err != nil {
 		WriteError(context, err)
 		return
@@ -92,9 +92,9 @@ func (handler *SafetyZoneHandler) transition(context *gin.Context, activate bool
 	}
 	var item dto.SafetyZoneResponse
 	if activate {
-		item, err = handler.service.Activate(id, request.Version, Actor(context), RequestID(context))
+		item, err = handler.service.Activate(context.Request.Context(), id, request.Version, Actor(context), RequestID(context))
 	} else {
-		item, err = handler.service.Deactivate(id, request.Version, Actor(context), RequestID(context))
+		item, err = handler.service.Deactivate(context.Request.Context(), id, request.Version, Actor(context), RequestID(context))
 	}
 	if err != nil {
 		WriteError(context, err)

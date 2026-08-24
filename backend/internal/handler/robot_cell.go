@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -17,7 +18,7 @@ func NewRobotCellHandler(service *service.RobotCellService) *RobotCellHandler {
 
 func (handler *RobotCellHandler) List(context *gin.Context) {
 	page, pageSize := Pagination(context)
-	items, meta, err := handler.service.List(page, pageSize, context.Query("state"), context.Query("owner_team"))
+	items, meta, err := handler.service.List(context.Request.Context(), page, pageSize, context.Query("state"), context.Query("owner_team"))
 	if err != nil {
 		WriteError(context, err)
 		return
@@ -31,7 +32,7 @@ func (handler *RobotCellHandler) Get(context *gin.Context) {
 		WriteError(context, err)
 		return
 	}
-	item, err := handler.service.Get(id)
+	item, err := handler.service.Get(context.Request.Context(), id)
 	if err != nil {
 		WriteError(context, err)
 		return
@@ -45,7 +46,7 @@ func (handler *RobotCellHandler) Create(context *gin.Context) {
 		WriteError(context, err)
 		return
 	}
-	item, err := handler.service.Create(request, Actor(context), RequestID(context))
+	item, err := handler.service.Create(context.Request.Context(), request, Actor(context), RequestID(context))
 	if err != nil {
 		WriteError(context, err)
 		return
@@ -64,7 +65,7 @@ func (handler *RobotCellHandler) Update(context *gin.Context) {
 		WriteError(context, err)
 		return
 	}
-	item, err := handler.service.Update(id, request, Actor(context), RequestID(context))
+	item, err := handler.service.Update(context.Request.Context(), id, request, Actor(context), RequestID(context))
 	if err != nil {
 		WriteError(context, err)
 		return
@@ -80,13 +81,13 @@ func (handler *RobotCellHandler) Deactivate(context *gin.Context) {
 	handler.stateAction(context, handler.service.Deactivate)
 }
 
-func (handler *RobotCellHandler) stateAction(context *gin.Context, action func(uint, dto.Actor, string) (dto.RobotCellResponse, error)) {
+func (handler *RobotCellHandler) stateAction(context *gin.Context, action func(context.Context, uint, dto.Actor, string) (dto.RobotCellResponse, error)) {
 	id, err := PathID(context)
 	if err != nil {
 		WriteError(context, err)
 		return
 	}
-	item, err := action(id, Actor(context), RequestID(context))
+	item, err := action(context.Request.Context(), id, Actor(context), RequestID(context))
 	if err != nil {
 		WriteError(context, err)
 		return

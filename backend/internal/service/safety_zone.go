@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -22,11 +23,11 @@ func NewSafetyZoneService(repository *repository.SafetyZoneRepository, cells *re
 	return &SafetyZoneService{repository: repository, cells: cells, system: system}
 }
 
-func (service *SafetyZoneService) Create(request dto.CreateSafetyZoneRequest, actor dto.Actor, requestID string) (dto.SafetyZoneResponse, error) {
+func (service *SafetyZoneService) Create(ctx context.Context, request dto.CreateSafetyZoneRequest, actor dto.Actor, requestID string) (dto.SafetyZoneResponse, error) {
 	if err := validateZone(request.ZoneType, request.PolygonGeoJSON, request.MinHeightMM, request.MaxHeightMM, request.SpeedLimitMMS); err != nil {
 		return dto.SafetyZoneResponse{}, err
 	}
-	cell, err := service.cells.Get(request.RobotCellID)
+	cell, err := service.cells.Get(ctx, request.RobotCellID)
 	if err != nil {
 		return dto.SafetyZoneResponse{}, MapRepositoryError("robot cell", err)
 	}
@@ -39,28 +40,28 @@ func (service *SafetyZoneService) Create(request dto.CreateSafetyZoneRequest, ac
 		SpeedLimitMMS: request.SpeedLimitMMS, AccessRule: strings.TrimSpace(request.AccessRule),
 		ZoneState: constants.ZoneStateDraft, Version: 1, CreatedBy: actor.ID,
 	}
-	if err := service.repository.Create(&zone); err != nil {
+	if err := service.repository.Create(ctx, &zone); err != nil {
 		if repository.IsUniqueViolation(err) {
 			return dto.SafetyZoneResponse{}, Conflict("duplicate_zone_name", "zone name already exists in this cell", err)
 		}
 		return dto.SafetyZoneResponse{}, Internal("could not create safety zone", err)
 	}
-	if err := service.system.RecordAudit(actor, requestID, "safety_zone.created", "safety_zone", auditID(zone.ID), map[string]any{"robot_cell_id": zone.RobotCellID}, nil, zoneSummary(zone)); err != nil {
+	if err := service.system.RecordAudit(ctx, actor, requestID, "safety_zone.created", "safety_zone", auditID(zone.ID), map[string]any{"robot_cell_id": zone.RobotCellID}, nil, zoneSummary(zone)); err != nil {
 		return dto.SafetyZoneResponse{}, err
 	}
-	return service.Get(zone.ID)
+	return service.Get(ctx, zone.ID)
 }
 
-func (service *SafetyZoneService) Get(id uint) (dto.SafetyZoneResponse, error) {
-	zone, err := service.repository.Get(id)
+func (service *SafetyZoneService) Get(ctx context.Context, id uint) (dto.SafetyZoneResponse, error) {
+	zone, err := service.repository.Get(ctx, id)
 	if err != nil {
 		return dto.SafetyZoneResponse{}, MapRepositoryError("safety zone", err)
 	}
 	return zoneResponse(zone), nil
 }
 
-func (service *SafetyZoneService) List(page, pageSize int, cellID uint, state, zoneType string) ([]dto.SafetyZoneResponse, dto.PageMeta, error) {
-	zones, total, err := service.repository.List(page, pageSize, cellID, state, zoneType)
+func (service *SafetyZoneService) List(ctx context.Context, page, pageSize int, cellID uint, state, zoneType string) ([]dto.SafetyZoneResponse, dto.PageMeta, error) {
+	zones, total, err := service.repository.List(ctx, page, pageSize, cellID, state, zoneType)
 	if err != nil {
 		return nil, dto.PageMeta{}, Internal("could not list safety zones", err)
 	}
@@ -71,11 +72,11 @@ func (service *SafetyZoneService) List(page, pageSize int, cellID uint, state, z
 	return responses, PageMeta(page, pageSize, total), nil
 }
 
-func (service *SafetyZoneService) Update(id uint, request dto.UpdateSafetyZoneRequest, actor dto.Actor, requestID string) (dto.SafetyZoneResponse, error) {
+func (service *SafetyZoneService) Update(ctx context.Context, id uint, request dto.UpdateSafetyZoneRequest, actor dto.Actor, requestID string) (dto.SafetyZoneResponse, error) {
 	if err := validateZone(request.ZoneType, request.PolygonGeoJSON, request.MinHeightMM, request.MaxHeightMM, request.SpeedLimitMMS); err != nil {
 		return dto.SafetyZoneResponse{}, err
 	}
-	before, err := service.repository.Get(id)
+	before, err := service.repository.Get(ctx, id)
 	if err != nil {
 		return dto.SafetyZoneResponse{}, MapRepositoryError("safety zone", err)
 	}
@@ -83,7 +84,7 @@ func (service *SafetyZoneService) Update(id uint, request dto.UpdateSafetyZoneRe
 	updated.Name, updated.ZoneType, updated.PolygonGeoJSON = strings.TrimSpace(request.Name), request.ZoneType, string(request.PolygonGeoJSON)
 	updated.MinHeightMM, updated.MaxHeightMM, updated.SpeedLimitMMS = request.MinHeightMM, request.MaxHeightMM, request.SpeedLimitMMS
 	updated.AccessRule = strings.TrimSpace(request.AccessRule)
-	if err := service.repository.Update(&updated, request.Version); err != nil {
+	if err := service.repository.Update(ctx, &updated, request.Version); err != nil {
 		if errors.Is(err, repository.ErrVersionConflict) {
 			return dto.SafetyZoneResponse{}, Conflict("version_conflict", "zone version changed or the zone is inactive", err)
 		}
@@ -92,57 +93,57 @@ func (service *SafetyZoneService) Update(id uint, request dto.UpdateSafetyZoneRe
 		}
 		return dto.SafetyZoneResponse{}, Internal("could not update safety zone", err)
 	}
-	after, err := service.repository.Get(id)
+	after, err := service.repository.Get(ctx, id)
 	if err != nil {
 		return dto.SafetyZoneResponse{}, Internal("could not reload safety zone", err)
 	}
-	if err := service.system.RecordAudit(actor, requestID, "safety_zone.revised", "safety_zone", auditID(id), map[string]any{"expected_version": request.Version}, zoneSummary(before), zoneSummary(after)); err != nil {
+	if err := service.system.RecordAudit(ctx, actor, requestID, "safety_zone.revised", "safety_zone", auditID(id), map[string]any{"expected_version": request.Version}, zoneSummary(before), zoneSummary(after)); err != nil {
 		return dto.SafetyZoneResponse{}, err
 	}
 	return zoneResponse(after), nil
 }
 
-func (service *SafetyZoneService) Activate(id uint, version int, actor dto.Actor, requestID string) (dto.SafetyZoneResponse, error) {
-	zone, err := service.repository.Get(id)
+func (service *SafetyZoneService) Activate(ctx context.Context, id uint, version int, actor dto.Actor, requestID string) (dto.SafetyZoneResponse, error) {
+	zone, err := service.repository.Get(ctx, id)
 	if err != nil {
 		return dto.SafetyZoneResponse{}, MapRepositoryError("safety zone", err)
 	}
 	if zone.ZoneState != constants.ZoneStateDraft {
 		return dto.SafetyZoneResponse{}, Conflict("state_conflict", "only draft zones can be activated", repository.ErrStateConflict)
 	}
-	cell, err := service.cells.Get(zone.RobotCellID)
+	cell, err := service.cells.Get(ctx, zone.RobotCellID)
 	if err != nil {
 		return dto.SafetyZoneResponse{}, MapRepositoryError("robot cell", err)
 	}
 	if cell.CellState == constants.CellStateInactive {
 		return dto.SafetyZoneResponse{}, Conflict("cell_inactive", "zones in an inactive cell cannot be activated", repository.ErrStateConflict)
 	}
-	return service.transition(zone, version, constants.ZoneStateActive, "safety_zone.activated", actor, requestID)
+	return service.transition(ctx, zone, version, constants.ZoneStateActive, "safety_zone.activated", actor, requestID)
 }
 
-func (service *SafetyZoneService) Deactivate(id uint, version int, actor dto.Actor, requestID string) (dto.SafetyZoneResponse, error) {
-	zone, err := service.repository.Get(id)
+func (service *SafetyZoneService) Deactivate(ctx context.Context, id uint, version int, actor dto.Actor, requestID string) (dto.SafetyZoneResponse, error) {
+	zone, err := service.repository.Get(ctx, id)
 	if err != nil {
 		return dto.SafetyZoneResponse{}, MapRepositoryError("safety zone", err)
 	}
 	if zone.ZoneState == constants.ZoneStateInactive {
 		return dto.SafetyZoneResponse{}, Conflict("state_conflict", "safety zone is already inactive", repository.ErrStateConflict)
 	}
-	return service.transition(zone, version, constants.ZoneStateInactive, "safety_zone.deactivated", actor, requestID)
+	return service.transition(ctx, zone, version, constants.ZoneStateInactive, "safety_zone.deactivated", actor, requestID)
 }
 
-func (service *SafetyZoneService) transition(before model.SafetyZone, version int, target, action string, actor dto.Actor, requestID string) (dto.SafetyZoneResponse, error) {
+func (service *SafetyZoneService) transition(ctx context.Context, before model.SafetyZone, version int, target, action string, actor dto.Actor, requestID string) (dto.SafetyZoneResponse, error) {
 	if before.Version != version {
 		return dto.SafetyZoneResponse{}, Conflict("version_conflict", "zone version changed", repository.ErrVersionConflict)
 	}
-	if err := service.repository.Transition(before.ID, version, before.ZoneState, target); err != nil {
+	if err := service.repository.Transition(ctx, before.ID, version, before.ZoneState, target); err != nil {
 		return dto.SafetyZoneResponse{}, Conflict("state_conflict", "zone state or version changed concurrently", err)
 	}
-	after, err := service.repository.Get(before.ID)
+	after, err := service.repository.Get(ctx, before.ID)
 	if err != nil {
 		return dto.SafetyZoneResponse{}, Internal("could not reload safety zone", err)
 	}
-	if err := service.system.RecordAudit(actor, requestID, action, "safety_zone", auditID(before.ID), map[string]any{"expected_version": version}, zoneSummary(before), zoneSummary(after)); err != nil {
+	if err := service.system.RecordAudit(ctx, actor, requestID, action, "safety_zone", auditID(before.ID), map[string]any{"expected_version": version}, zoneSummary(before), zoneSummary(after)); err != nil {
 		return dto.SafetyZoneResponse{}, err
 	}
 	return zoneResponse(after), nil

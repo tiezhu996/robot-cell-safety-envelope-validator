@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"fmt"
 
 	"gorm.io/gorm"
@@ -15,23 +16,23 @@ func (repository *RobotCellRepository) WithDB(db *gorm.DB) *RobotCellRepository 
 	return &RobotCellRepository{db: db}
 }
 
-func (repository *RobotCellRepository) Create(cell *model.RobotCell) error {
-	if err := repository.db.Create(cell).Error; err != nil {
+func (repository *RobotCellRepository) Create(ctx context.Context, cell *model.RobotCell) error {
+	if err := repository.db.WithContext(ctx).Create(cell).Error; err != nil {
 		return fmt.Errorf("create robot cell: %w", err)
 	}
 	return nil
 }
 
-func (repository *RobotCellRepository) Get(id uint) (model.RobotCell, error) {
+func (repository *RobotCellRepository) Get(ctx context.Context, id uint) (model.RobotCell, error) {
 	var cell model.RobotCell
-	if err := repository.db.First(&cell, id).Error; err != nil {
+	if err := repository.db.WithContext(ctx).First(&cell, id).Error; err != nil {
 		return cell, fmt.Errorf("get robot cell: %w", err)
 	}
 	return cell, nil
 }
 
-func (repository *RobotCellRepository) List(page, pageSize int, state, owner string) ([]model.RobotCell, int64, error) {
-	query := repository.db.Model(&model.RobotCell{})
+func (repository *RobotCellRepository) List(ctx context.Context, page, pageSize int, state, owner string) ([]model.RobotCell, int64, error) {
+	query := repository.db.WithContext(ctx).Model(&model.RobotCell{})
 	if state != "" {
 		query = query.Where("cell_state = ?", state)
 	}
@@ -49,8 +50,8 @@ func (repository *RobotCellRepository) List(page, pageSize int, state, owner str
 	return cells, total, nil
 }
 
-func (repository *RobotCellRepository) Update(cell *model.RobotCell, expectedVersion int) error {
-	result := repository.db.Model(&model.RobotCell{}).
+func (repository *RobotCellRepository) Update(ctx context.Context, cell *model.RobotCell, expectedVersion int) error {
+	result := repository.db.WithContext(ctx).Model(&model.RobotCell{}).
 		Where("id = ? AND layout_version = ? AND cell_state = ?", cell.ID, expectedVersion, "draft").
 		Updates(map[string]any{
 			"name": cell.Name, "layout_geo_json": cell.LayoutGeoJSON, "robot_model": cell.RobotModel,
@@ -66,8 +67,8 @@ func (repository *RobotCellRepository) Update(cell *model.RobotCell, expectedVer
 	return nil
 }
 
-func (repository *RobotCellRepository) Transition(id uint, from, to string) error {
-	result := repository.db.Model(&model.RobotCell{}).Where("id = ? AND cell_state = ?", id, from).Update("cell_state", to)
+func (repository *RobotCellRepository) Transition(ctx context.Context, id uint, from, to string) error {
+	result := repository.db.WithContext(ctx).Model(&model.RobotCell{}).Where("id = ? AND cell_state = ?", id, from).Update("cell_state", to)
 	if result.Error != nil {
 		return fmt.Errorf("transition robot cell: %w", result.Error)
 	}
@@ -77,12 +78,12 @@ func (repository *RobotCellRepository) Transition(id uint, from, to string) erro
 	return nil
 }
 
-func (repository *RobotCellRepository) Counts(id uint) (int64, int64, error) {
+func (repository *RobotCellRepository) Counts(ctx context.Context, id uint) (int64, int64, error) {
 	var zones, programs int64
-	if err := repository.db.Model(&model.SafetyZone{}).Where("robot_cell_id = ?", id).Count(&zones).Error; err != nil {
+	if err := repository.db.WithContext(ctx).Model(&model.SafetyZone{}).Where("robot_cell_id = ?", id).Count(&zones).Error; err != nil {
 		return 0, 0, fmt.Errorf("count zones: %w", err)
 	}
-	if err := repository.db.Model(&model.MotionProgram{}).Where("robot_cell_id = ?", id).Count(&programs).Error; err != nil {
+	if err := repository.db.WithContext(ctx).Model(&model.MotionProgram{}).Where("robot_cell_id = ?", id).Count(&programs).Error; err != nil {
 		return 0, 0, fmt.Errorf("count programs: %w", err)
 	}
 	return zones, programs, nil
