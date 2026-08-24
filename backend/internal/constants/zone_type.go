@@ -13,7 +13,7 @@ const (
 
 func ValidZoneType(value string) bool {
 	switch value {
-	case ZoneTypeOperating, ZoneTypeRestricted, ZoneTypeService:
+	case ZoneTypeOperating, ZoneTypeRestricted, ZoneTypeService, ZoneTypeEscape:
 		return true
 	default:
 		return false

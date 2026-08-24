@@ -15,7 +15,7 @@ func registerSafetyZoneRoutes(group *gin.RouterGroup, target *handler.SafetyZone
 	write := routes.Group("")
 	write.Use(middleware.RBAC(constants.RoleSafetyEngineer, constants.RoleAdmin))
 	write.POST("", target.Create)
-	routes.PUT("/:id", target.Update)
-	routes.POST("/:id/activate", target.Activate)
-	routes.POST("/:id/deactivate", target.Deactivate)
+	write.PUT("/:id", target.Update)
+	write.POST("/:id/activate", target.Activate)
+	write.POST("/:id/deactivate", target.Deactivate)
 }
