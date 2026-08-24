@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -44,26 +45,24 @@ type rateBucket struct {
 	count  int
 }
 
-var rateBuckets = map[string]rateBucket{}
+// rateLimiter counts requests per (scope, client) minute window. The mutex is
+// mandatory: Gin serves concurrent requests in separate goroutines, so an
+// unguarded map crashes the process with "concurrent map read and map write".
+type rateLimiter struct {
+	mu      sync.Mutex
+	buckets map[string]rateBucket
+}
 
+var globalRateLimiter = &rateLimiter{buckets: make(map[string]rateBucket)}
+
+// RateLimit caps requests per minute per client within scope. The bucket key
+// combines scope and client IP, so each client gets its own budget and one
+// client exhausting its limit never throttles another.
 func RateLimit(limit int, scope string) gin.HandlerFunc {
 	return func(context *gin.Context) {
 		minute := time.Now().Unix() / 60
-		key := scope
-		bucket := rateBuckets[key]
-		if bucket.minute != minute {
-			bucket = rateBucket{minute: minute}
-		}
-		bucket.count++
-		rateBuckets[key] = bucket
-		if len(rateBuckets) > 4096 {
-			for candidate, value := range rateBuckets {
-				if value.minute < minute-1 {
-					delete(rateBuckets, candidate)
-				}
-			}
-		}
-		blocked := bucket.count > limit
+		key := scope + ":" + context.ClientIP()
+		blocked := globalRateLimiter.take(key, minute, limit)
 		if blocked {
 			context.Header("Retry-After", "60")
 			context.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": gin.H{"code": "rate_limited", "message": "local request limit exceeded for " + scope}, "request_id": context.GetString("request_id")})
@@ -71,6 +70,25 @@ func RateLimit(limit int, scope string) gin.HandlerFunc {
 		}
 		context.Next()
 	}
+}
+
+func (limiter *rateLimiter) take(key string, minute int64, limit int) bool {
+	limiter.mu.Lock()
+	defer limiter.mu.Unlock()
+	bucket := limiter.buckets[key]
+	if bucket.minute != minute {
+		bucket = rateBucket{minute: minute}
+	}
+	bucket.count++
+	limiter.buckets[key] = bucket
+	if len(limiter.buckets) > 4096 {
+		for candidate, value := range limiter.buckets {
+			if value.minute < minute-1 {
+				delete(limiter.buckets, candidate)
+			}
+		}
+	}
+	return bucket.count > limit
 }
 
 func newRequestID() string {
