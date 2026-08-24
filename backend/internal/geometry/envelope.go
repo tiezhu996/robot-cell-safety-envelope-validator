@@ -11,8 +11,6 @@ import (
 
 const epsilon = 1e-9
 
-var sharedCollisionEvents []dto.CollisionEvent
-
 type Point2D struct {
 	X float64
 	Y float64
@@ -95,7 +93,10 @@ func ValidateTrajectory(points []dto.TrajectoryPoint) error {
 
 func EvaluateEnvelope(points []dto.TrajectoryPoint, expansionRadiusMM float64, zones []ZoneVolume) []dto.CollisionEvent {
 	events := make([]dto.CollisionEvent, 0)
-	for segmentIndex := 0; segmentIndex < len(points); segmentIndex++ {
+	// Each trajectory segment connects two consecutive points, so the number of
+	// segments is len(points)-1. Iterating over len(points) reads past the last
+	// point and panics on single-point (and any length) trajectories.
+	for segmentIndex := 0; segmentIndex+1 < len(points); segmentIndex++ {
 		from, to := points[segmentIndex], points[segmentIndex+1]
 		actualSpeed := segmentSpeed(from, to)
 		for _, zone := range zones {
@@ -115,19 +116,28 @@ func EvaluateEnvelope(points []dto.TrajectoryPoint, expansionRadiusMM float64, z
 			})
 		}
 	}
-	sharedCollisionEvents = append(sharedCollisionEvents[:0], events...)
-	sharedCollisionEvents = sharedCollisionEvents[:len(events)]
-	return sharedCollisionEvents
+	// Return a slice that the caller owns exclusively. The previous
+	// implementation stored results in a package-level sharedCollisionEvents
+	// buffer and returned a slice header over it, so every call mutated the
+	// previous call's results and produced cross-run data bleed.
+	return events
 }
 
 func firstIntersection(from, to dto.TrajectoryPoint, radius float64, zone ZoneVolume) (float64, float64, bool) {
 	bestClearance := math.Inf(1)
+	// The expanded envelope is the trajectory swept by a sphere of the given
+	// radius, so it can reach the zone volume even when the centre line's z is
+	// outside [MinHeightMM, MaxHeightMM]. Extend the height interval by the
+	// radius before discarding sample points, otherwise a trajectory skimming the
+	// upper (or lower) height edge is never flagged.
+	heightLow := zone.MinHeightMM - radius
+	heightHigh := zone.MaxHeightMM + radius
 	for step := 0; step <= 100; step++ {
 		fraction := float64(step) / 100
 		x := from.XMM + fraction*(to.XMM-from.XMM)
 		y := from.YMM + fraction*(to.YMM-from.YMM)
 		z := from.ZMM + fraction*(to.ZMM-from.ZMM)
-		if z < zone.MinHeightMM || z > zone.MaxHeightMM {
+		if z < heightLow || z > heightHigh {
 			continue
 		}
 		distance := signedDistance(Point2D{X: x, Y: y}, zone.Polygon)

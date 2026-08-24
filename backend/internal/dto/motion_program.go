@@ -20,7 +20,7 @@ type CreateMotionProgramRequest struct {
 	RobotCellID       uint              `json:"robot_cell_id" validate:"required"`
 	ProgramCode       string            `json:"program_code" validate:"required,min=3,max=80"`
 	Version           int               `json:"version" validate:"required,gte=1,lte=9999"`
-	Trajectory        []TrajectoryPoint `json:"trajectory" validate:"required,dive"`
+	Trajectory        []TrajectoryPoint `json:"trajectory" validate:"required,min=2,dive"`
 	ToolRadiusMM      float64           `json:"tool_radius_mm" validate:"gte=0,lte=3000"`
 	PayloadRadiusMM   float64           `json:"payload_radius_mm" validate:"gte=0,lte=3000"`
 	InterlockSequence []InterlockEvent  `json:"interlock_sequence" validate:"required,min=1,dive"`
