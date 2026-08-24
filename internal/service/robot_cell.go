@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"robot-cell-safety-envelope-validator/backend/internal/constants"
@@ -75,6 +76,9 @@ func (service *RobotCellService) Update(id uint, request dto.UpdateRobotCellRequ
 	if err != nil {
 		return dto.RobotCellResponse{}, MapRepositoryError("robot cell", err)
 	}
+	if before.CellState != constants.CellStateDraft {
+		return dto.RobotCellResponse{}, Conflict("cell_not_editable", "robot cell layout can only be edited while in draft state", repository.ErrStateConflict)
+	}
 	updated := before
 	updated.Name, updated.LayoutGeoJSON = strings.TrimSpace(request.Name), string(request.LayoutGeoJSON)
 	updated.RobotModel, updated.ControllerModel = strings.TrimSpace(request.RobotModel), strings.TrimSpace(request.ControllerModel)
@@ -96,30 +100,25 @@ func (service *RobotCellService) Update(id uint, request dto.UpdateRobotCellRequ
 }
 
 func (service *RobotCellService) Freeze(id uint, actor dto.Actor, requestID string) (dto.RobotCellResponse, error) {
-	before, err := service.repository.Get(id)
-	if err != nil {
-		return dto.RobotCellResponse{}, MapRepositoryError("robot cell", err)
-	}
-	return service.transition(id, before.CellState, constants.CellStateFrozen, "robot_cell.layout_frozen", actor, requestID)
+	return service.transition(id, constants.CellStateFrozen, "robot_cell.layout_frozen", actor, requestID)
 }
 
 func (service *RobotCellService) Deactivate(id uint, actor dto.Actor, requestID string) (dto.RobotCellResponse, error) {
-	before, err := service.repository.Get(id)
-	if err != nil {
-		return dto.RobotCellResponse{}, MapRepositoryError("robot cell", err)
-	}
-	return service.transition(id, before.CellState, constants.CellStateInactive, "robot_cell.deactivated", actor, requestID)
+	return service.transition(id, constants.CellStateInactive, "robot_cell.deactivated", actor, requestID)
 }
 
-func (service *RobotCellService) transition(id uint, from, to, action string, actor dto.Actor, requestID string) (dto.RobotCellResponse, error) {
+func (service *RobotCellService) transition(id uint, to, action string, actor dto.Actor, requestID string) (dto.RobotCellResponse, error) {
 	before, err := service.repository.Get(id)
 	if err != nil {
 		return dto.RobotCellResponse{}, MapRepositoryError("robot cell", err)
 	}
-	if before.CellState != from {
-		return dto.RobotCellResponse{}, Conflict("state_conflict", "robot cell state no longer allows this action", repository.ErrStateConflict)
+	if before.CellState == to {
+		return dto.RobotCellResponse{}, Conflict("state_conflict", "robot cell is already in the requested state", repository.ErrStateConflict)
 	}
-	if err := service.repository.Transition(id, from, to); err != nil {
+	if !constants.CanTransitionCell(before.CellState, to) {
+		return dto.RobotCellResponse{}, Conflict("state_conflict", fmt.Sprintf("robot cell cannot transition from %s to %s", before.CellState, to), repository.ErrStateConflict)
+	}
+	if err := service.repository.Transition(id, before.CellState, to); err != nil {
 		return dto.RobotCellResponse{}, Conflict("state_conflict", "robot cell state changed concurrently", err)
 	}
 	after, err := service.repository.Get(id)

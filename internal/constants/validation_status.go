@@ -57,3 +57,12 @@ func CanTransitionValidation(from, to string) bool {
 	}
 	return allowed[from][to]
 }
+
+func CanTransitionCell(from, to string) bool {
+	allowed := map[string]map[string]bool{
+		CellStateDraft:    {CellStateFrozen: true, CellStateInactive: true},
+		CellStateFrozen:   {CellStateInactive: true, CellStateDraft: true},
+		CellStateInactive: {CellStateDraft: true},
+	}
+	return allowed[from][to]
+}

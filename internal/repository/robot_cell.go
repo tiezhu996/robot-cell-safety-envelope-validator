@@ -67,8 +67,9 @@ func (repository *RobotCellRepository) Update(cell *model.RobotCell, expectedVer
 }
 
 func (repository *RobotCellRepository) Transition(id uint, from, to string) error {
-	_ = from
-	result := repository.db.Model(&model.RobotCell{}).Where("id = ?", id).Update("cell_state", to)
+	result := repository.db.Model(&model.RobotCell{}).
+		Where("id = ? AND cell_state = ?", id, from).
+		Update("cell_state", to)
 	if result.Error != nil {
 		return fmt.Errorf("transition robot cell: %w", result.Error)
 	}
