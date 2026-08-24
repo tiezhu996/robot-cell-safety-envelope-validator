@@ -15,5 +15,5 @@ func registerMotionProgramRoutes(group *gin.RouterGroup, target *handler.MotionP
 	write := routes.Group("")
 	write.Use(middleware.RBAC(constants.RoleRobotProgrammer, constants.RoleAdmin))
 	write.POST("", middleware.RateLimit(20, "program_import"), target.Create)
-	routes.POST("/:id/transition", target.Transition)
+	write.POST("/:id/transition", target.Transition)
 }

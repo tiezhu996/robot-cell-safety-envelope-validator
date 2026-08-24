@@ -36,6 +36,18 @@ func ValidRole(value string) bool {
 	}
 }
 
+// ValidProgramState reports whether value names a known motion-program
+// lifecycle state. It guards the transition endpoint against unknown targets
+// before any state-machine comparison runs.
+func ValidProgramState(value string) bool {
+	switch value {
+	case ProgramStateUploaded, ProgramStateParsed, ProgramStateReady, ProgramStateActive, ProgramStateSuperseded, ProgramStateRejected:
+		return true
+	default:
+		return false
+	}
+}
+
 func CanTransitionProgram(from, to string) bool {
 	allowed := map[string]map[string]bool{
 		ProgramStateUploaded: {ProgramStateParsed: true, ProgramStateRejected: true},

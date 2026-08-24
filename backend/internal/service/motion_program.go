@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -90,24 +91,30 @@ func (service *MotionProgramService) List(page, pageSize int, cellID uint, state
 }
 
 func (service *MotionProgramService) Transition(id uint, target string, actor dto.Actor, requestID string) (dto.MotionProgramResponse, error) {
+	if !constants.ValidProgramState(target) {
+		return dto.MotionProgramResponse{}, BadRequest("invalid_target_state", fmt.Sprintf("target state %q is not a known program state", target))
+	}
 	before, err := service.repository.Get(id)
 	if err != nil {
 		return dto.MotionProgramResponse{}, MapRepositoryError("motion program", err)
 	}
+	if !constants.CanTransitionProgram(before.ProgramState, target) {
+		return dto.MotionProgramResponse{}, Conflict("invalid_program_transition", fmt.Sprintf("program cannot transition from %s to %s", before.ProgramState, target), repository.ErrStateConflict)
+	}
+	// Parsing is a side-effecting transition: run semantic checks first and
+	// route failures into rejected rather than parsed.
 	if target == constants.ProgramStateParsed {
 		if parseErrors := service.parseErrors(before); len(parseErrors) > 0 {
-			if err := service.repository.Transition(id, target, constants.ProgramStateRejected); err != nil {
-				return dto.MotionProgramResponse{}, Conflict("state_conflict", "program state changed while rejecting parse", err)
-			}
-			after, _ := service.repository.Get(id)
-			_ = service.system.RecordAudit(actor, requestID, "motion_program.parse_rejected", "motion_program", auditID(id), map[string]any{"errors": parseErrors}, programSummary(before), programSummary(after))
-			return dto.MotionProgramResponse{}, Unprocessable("program_parse_failed", strings.Join(parseErrors, "; "), nil)
+			return service.rejectParse(id, before, parseErrors, actor, requestID)
 		}
 	}
 	err = service.db.Transaction(func(tx *gorm.DB) error {
 		repo := service.repository.WithDB(tx)
-		if target != constants.ProgramStateActive {
-			if err := repo.SupersedeActive(0, before.ID); err != nil {
+		// Activating supersedes the prior active program in the SAME cell, so
+		// a cell never has two active programs at once. Other cells are
+		// untouched.
+		if target == constants.ProgramStateActive {
+			if err := repo.SupersedeActive(before.RobotCellID, before.ID); err != nil {
 				return err
 			}
 		}
@@ -127,6 +134,32 @@ func (service *MotionProgramService) Transition(id uint, target string, actor dt
 		return dto.MotionProgramResponse{}, Internal("could not transition motion program", err)
 	}
 	return service.Get(id)
+}
+
+// rejectParse moves a program from its current state to rejected after parse
+// validation fails. It runs in a transaction and records a parse_rejected
+// audit event describing the failures.
+func (service *MotionProgramService) rejectParse(id uint, before model.MotionProgram, parseErrors []string, actor dto.Actor, requestID string) (dto.MotionProgramResponse, error) {
+	var after model.MotionProgram
+	err := service.db.Transaction(func(tx *gorm.DB) error {
+		repo := service.repository.WithDB(tx)
+		if err := repo.Transition(id, before.ProgramState, constants.ProgramStateRejected); err != nil {
+			return err
+		}
+		loaded, err := repo.Get(id)
+		if err != nil {
+			return err
+		}
+		after = loaded
+		return service.system.RecordAuditTx(tx, actor, requestID, "motion_program.parse_rejected", "motion_program", auditID(id), map[string]any{"errors": parseErrors}, programSummary(before), programSummary(after))
+	})
+	if err != nil {
+		if errors.Is(err, repository.ErrStateConflict) {
+			return dto.MotionProgramResponse{}, Conflict("state_conflict", "program state changed while rejecting parse", err)
+		}
+		return dto.MotionProgramResponse{}, Internal("could not reject motion program", err)
+	}
+	return dto.MotionProgramResponse{}, Unprocessable("program_parse_failed", strings.Join(parseErrors, "; "), nil)
 }
 
 func (service *MotionProgramService) parseErrors(program model.MotionProgram) []string {
