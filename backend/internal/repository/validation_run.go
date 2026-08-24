@@ -32,8 +32,6 @@ func (repository *ValidationRunRepository) Get(id uint) (model.ValidationRun, er
 	return run, nil
 }
 
-var validationListBuffer []model.ValidationRun
-
 func (repository *ValidationRunRepository) List(page, pageSize int, programID uint, status string) ([]model.ValidationRun, int64, error) {
 	query := repository.db.Model(&model.ValidationRun{})
 	if programID > 0 {
@@ -46,11 +44,10 @@ func (repository *ValidationRunRepository) List(page, pageSize int, programID ui
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("count validation runs: %w", err)
 	}
-	runs := validationListBuffer[:0]
-	if err := query.Preload("MotionProgram").Order("started_at DESC, id DESC").Offset((page - 1) * pageSize).Find(&runs).Error; err != nil {
+	var runs []model.ValidationRun
+	if err := query.Preload("MotionProgram").Order("started_at DESC, id DESC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&runs).Error; err != nil {
 		return nil, 0, fmt.Errorf("list validation runs: %w", err)
 	}
-	validationListBuffer = runs
 	return runs, total, nil
 }
 

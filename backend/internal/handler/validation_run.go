@@ -17,7 +17,7 @@ func NewValidationRunHandler(service *service.ValidationRunService) *ValidationR
 
 func (handler *ValidationRunHandler) List(context *gin.Context) {
 	page, pageSize := Pagination(context)
-	items, meta, err := handler.service.List(page, pageSize, QueryUint(context, "motion_program_id"), "")
+	items, meta, err := handler.service.List(page, pageSize, QueryUint(context, "motion_program_id"), context.Query("status"))
 	if err != nil {
 		WriteError(context, err)
 		return

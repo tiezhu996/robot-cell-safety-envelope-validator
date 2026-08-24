@@ -144,7 +144,7 @@ func (service *ValidationRunService) Get(id uint) (dto.ValidationRunResponse, er
 }
 
 func (service *ValidationRunService) List(page, pageSize int, programID uint, status string) ([]dto.ValidationRunResponse, dto.PageMeta, error) {
-	runs, total, err := service.repository.List(page, pageSize, programID, "")
+	runs, total, err := service.repository.List(page, pageSize, programID, status)
 	if err != nil {
 		return nil, dto.PageMeta{}, Internal("could not list validation runs", err)
 	}
