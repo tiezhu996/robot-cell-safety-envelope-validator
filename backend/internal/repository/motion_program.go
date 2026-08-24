@@ -27,7 +27,7 @@ func (repository *MotionProgramRepository) Create(program *model.MotionProgram) 
 func (repository *MotionProgramRepository) Get(id uint) (model.MotionProgram, error) {
 	var program model.MotionProgram
 	if err := repository.db.Preload("RobotCell").First(&program, id).Error; err != nil {
-		return program, fmt.Errorf("get motion program: %v", err)
+		return program, fmt.Errorf("get motion program: %w", err)
 	}
 	return program, nil
 }

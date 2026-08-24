@@ -33,7 +33,7 @@ func (handler *MotionProgramHandler) Get(context *gin.Context) {
 	}
 	item, err := handler.service.Get(id)
 	if err != nil {
-		WriteError(context, service.Internal("get motion program failed", err))
+		WriteError(context, err)
 		return
 	}
 	WriteData(context, http.StatusOK, item)
@@ -42,12 +42,12 @@ func (handler *MotionProgramHandler) Get(context *gin.Context) {
 func (handler *MotionProgramHandler) Create(context *gin.Context) {
 	var request dto.CreateMotionProgramRequest
 	if err := BindAndValidate(context, &request); err != nil {
-		WriteError(context, service.Internal("create motion program failed", err))
+		WriteError(context, err)
 		return
 	}
 	item, err := handler.service.Create(request, Actor(context), RequestID(context))
 	if err != nil {
-		WriteError(context, service.Internal("create motion program failed", err))
+		WriteError(context, err)
 		return
 	}
 	WriteData(context, http.StatusCreated, item)
@@ -61,12 +61,12 @@ func (handler *MotionProgramHandler) Transition(context *gin.Context) {
 	}
 	var request dto.ProgramTransitionRequest
 	if err := BindAndValidate(context, &request); err != nil {
-		WriteError(context, service.Internal("transition motion program failed", err))
+		WriteError(context, err)
 		return
 	}
 	item, err := handler.service.Transition(id, request.TargetState, Actor(context), RequestID(context))
 	if err != nil {
-		WriteError(context, service.Internal("transition motion program failed", err))
+		WriteError(context, err)
 		return
 	}
 	WriteData(context, http.StatusOK, item)

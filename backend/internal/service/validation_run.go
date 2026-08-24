@@ -152,7 +152,7 @@ func (service *ValidationRunService) List(page, pageSize int, programID uint, st
 	for _, run := range runs {
 		response, err := validationResponse(run)
 		if err != nil {
-			return nil, dto.PageMeta{}, Internal("stored validation evidence is invalid", err)
+			return nil, dto.PageMeta{}, err
 		}
 		responses = append(responses, response)
 	}
@@ -302,13 +302,19 @@ func summarizeValidation(collisions []dto.CollisionEvent, findings []dto.Interlo
 }
 
 func validationResponse(run model.ValidationRun) (dto.ValidationRunResponse, error) {
+	if err := validateStoredJSON(run.ZoneSnapshot, "zone snapshot"); err != nil {
+		return dto.ValidationRunResponse{}, Unprocessable("invalid_zone_snapshot", err.Error(), err)
+	}
+	if err := validateStoredJSON(run.ProgramSnapshot, "program snapshot"); err != nil {
+		return dto.ValidationRunResponse{}, Unprocessable("invalid_program_snapshot", err.Error(), err)
+	}
 	var collisions []dto.CollisionEvent
 	if err := json.Unmarshal([]byte(run.CollisionEventsJSON), &collisions); err != nil {
-		return dto.ValidationRunResponse{}, err
+		return dto.ValidationRunResponse{}, Unprocessable("invalid_collision_events", fmt.Errorf("stored collision events are corrupt: %w", err).Error(), err)
 	}
 	var findings []dto.InterlockFinding
 	if err := json.Unmarshal([]byte(run.InterlockFindingsJSON), &findings); err != nil {
-		return dto.ValidationRunResponse{}, err
+		return dto.ValidationRunResponse{}, Unprocessable("invalid_interlock_findings", fmt.Errorf("stored interlock findings are corrupt: %w", err).Error(), err)
 	}
 	return dto.ValidationRunResponse{
 		ID: run.ID, MotionProgramID: run.MotionProgramID, ProgramCode: run.MotionProgram.ProgramCode,
@@ -320,6 +326,21 @@ func validationResponse(run model.ValidationRun) (dto.ValidationRunResponse, err
 		StartedAt: run.StartedAt, FinishedAt: run.FinishedAt, ReviewedBy: run.ReviewedBy,
 		ReviewedAt: run.ReviewedAt, ReviewNote: run.ReviewNote,
 	}, nil
+}
+
+// validateStoredJSON returns an error describing the underlying parse failure
+// when a persisted snapshot field no longer holds valid JSON, so callers can
+// surface the original cause instead of failing later during response
+// serialization.
+func validateStoredJSON(raw, label string) error {
+	if raw == "" {
+		return fmt.Errorf("stored %s is empty", label)
+	}
+	var probe json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &probe); err != nil {
+		return fmt.Errorf("stored %s is corrupt: %w", label, err)
+	}
+	return nil
 }
 
 func validationSummary(run model.ValidationRun) map[string]any {
