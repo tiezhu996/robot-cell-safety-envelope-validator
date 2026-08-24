@@ -9,6 +9,9 @@
     "JWT_SECRET": "runtime-smoke-only-change-me"
   },
   "ready_url": "http://127.0.0.1:20533/healthz",
-  "ready_status": [200],
-  "startup_timeout": 30
+  "ready_status": [
+    200
+  ],
+  "startup_timeout": 30,
+  "project_intro": "基于 Go 实现的工业机器人安全包络校验 Web 项目，一款离线安全仿真工作台服务，完成工作单元/安全区域/运动程序维护与包络仿真校验。"
 }

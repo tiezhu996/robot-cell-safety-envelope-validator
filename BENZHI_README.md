@@ -1,5 +1,6 @@
 # robot-cell-safety-envelope-validator__007
 
+基于 Go 实现的工业机器人安全包络校验 Web 项目，一款离线安全仿真工作台服务，完成工作单元/安全区域/运动程序维护与包络仿真校验。
 ## 构建镜像
 
 请从**仓库根目录**执行；`benzhi.Dockerfile`、`build_benzhi_docker.sh`、`BENZHI_README.md` 均固定在该目录：

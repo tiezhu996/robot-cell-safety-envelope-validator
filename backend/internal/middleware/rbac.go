@@ -22,10 +22,11 @@ func RBAC(roles ...string) gin.HandlerFunc {
 			return
 		}
 		if !allowed[actor.Role] {
-			context.JSON(http.StatusForbidden, gin.H{
+			context.AbortWithStatusJSON(http.StatusForbidden, gin.H{
 				"error":      gin.H{"code": "forbidden", "message": "role is not allowed to perform this action"},
 				"request_id": context.GetString("request_id"),
 			})
+			return
 		}
 		context.Next()
 	}
